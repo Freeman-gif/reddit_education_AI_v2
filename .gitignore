@@ -1,0 +1,29 @@
+# Data
+data/*.db
+data/*.db-wal
+data/*.db-shm
+accounts.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# Logs
+*.log
