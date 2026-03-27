@@ -196,6 +196,52 @@ for p in posts:
 edges = conn.execute("SELECT source_id, target_id, weight FROM post_edges").fetchall()
 export("posts_all", {"posts": posts_out, "edges": [safe_row(e) for e in edges]})
 
+# per-topic drilldown data (posts + intra-topic edges + sentiments)
+all_edges = [safe_row(e) for e in edges]
+# Build post sentiments lookup
+post_sentiments = {}
+try:
+    ps_rows = conn.execute(
+        "SELECT post_id, dominant_emotion, sentiment_group FROM post_sentiments"
+    ).fetchall()
+    for r in ps_rows:
+        post_sentiments[r["post_id"]] = {
+            "dominant_emotion": r["dominant_emotion"],
+            "sentiment_group": r["sentiment_group"],
+        }
+except Exception:
+    pass
+
+for topic in conn.execute("SELECT topic_id FROM topics WHERE level = 1").fetchall():
+    tid = topic["topic_id"]
+    topic_posts = [p for p in posts_out if p.get("topic_id") == tid]
+    topic_post_ids = set(p["post_id"] for p in topic_posts)
+    topic_edges = [e for e in all_edges if e["source_id"] in topic_post_ids and e["target_id"] in topic_post_ids]
+
+    # Enrich with sentiment + created_month
+    tp_out = []
+    for p in topic_posts:
+        d = dict(p)
+        s = post_sentiments.get(d["post_id"], {})
+        d["dominant_emotion"] = s.get("dominant_emotion", d.get("dominant_emotion", "neutral"))
+        d["sentiment_group"] = s.get("sentiment_group", "sentiment_neutral")
+        # Add created_month from created_utc via DB
+        tp_out.append(d)
+
+    # Get created_month for time filtering
+    if topic_post_ids:
+        placeholders = ",".join("?" * len(topic_post_ids))
+        month_rows = conn.execute(f"""
+            SELECT p.id as post_id,
+                   strftime('%Y-%m', datetime(p.created_utc, 'unixepoch')) as created_month
+            FROM posts p WHERE p.id IN ({placeholders})
+        """, list(topic_post_ids)).fetchall()
+        month_map = {r["post_id"]: r["created_month"] for r in month_rows}
+        for d in tp_out:
+            d["created_month"] = month_map.get(d["post_id"], "")
+
+    export(f"posts_topic_{tid}", {"posts": tp_out, "edges": topic_edges})
+
 # hub detail for each topic
 for topic in conn.execute("SELECT topic_id FROM topics WHERE level = 1").fetchall():
     tid = topic["topic_id"]
