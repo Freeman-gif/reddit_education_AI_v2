@@ -55,6 +55,93 @@ comment_years = [r[0] for r in conn.execute("""
 """).fetchall()]
 export("years", {"post_years": post_years, "comment_years": comment_years})
 
+# categories (L1 topics enriched with metadata)
+cat_rows = conn.execute("""
+    SELECT t.topic_id, t.llm_label, t.auto_label, t.count,
+           t.llm_description, t.keywords,
+           AVG(ta.umap_x) as cx, AVG(ta.umap_y) as cy,
+           m.tags_json, m.subreddits_json, m.paragraph_summary
+    FROM topics t
+    JOIN topic_assignments ta ON ta.level1_id = t.topic_id
+    LEFT JOIN topic_category_meta m ON m.topic_id = t.topic_id
+    WHERE t.level = 1
+    GROUP BY t.topic_id
+""").fetchall()
+cats_out = []
+for r in cat_rows:
+    d = safe_row(r)
+    for field in ("tags_json", "subreddits_json"):
+        try:
+            d[field] = json.loads(d.get(field) or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d[field] = []
+    try:
+        d["keywords"] = json.loads(d.get("keywords") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        d["keywords"] = []
+    cats_out.append(d)
+export("categories", cats_out)
+
+# category edges (topic overlap)
+try:
+    overlap_rows = conn.execute("SELECT * FROM topic_overlap_edges").fetchall()
+    overlap_out = []
+    for r in overlap_rows:
+        d = safe_row(r)
+        try:
+            d["shared_tags_json"] = json.loads(d.get("shared_tags_json") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d["shared_tags_json"] = []
+        overlap_out.append(d)
+    export("categories_edges", overlap_out)
+except Exception as e:
+    print(f"  Skipping categories_edges: {e}")
+
+# timeline (monthly post counts + sentiment per topic)
+tl_rows = conn.execute("""
+    SELECT strftime('%Y-%m', datetime(p.created_utc, 'unixepoch')) as month,
+           ta.level1_id as topic_id,
+           COUNT(*) as cnt
+    FROM posts p
+    JOIN topic_assignments ta ON ta.post_id = p.id
+    GROUP BY month, ta.level1_id
+    ORDER BY month
+""").fetchall()
+
+months_dict = {}
+for r in tl_rows:
+    m = r["month"]
+    if m not in months_dict:
+        months_dict[m] = {"month": m, "total": 0, "by_topic": {}, "sentiment_by_topic": {}}
+    months_dict[m]["total"] += r["cnt"]
+    months_dict[m]["by_topic"][str(r["topic_id"])] = r["cnt"]
+
+try:
+    sent_rows = conn.execute("""
+        SELECT ps.created_month as month,
+               ta.level1_id as topic_id,
+               ps.sentiment_group,
+               COUNT(*) as cnt
+        FROM post_sentiments ps
+        JOIN topic_assignments ta ON ta.post_id = ps.post_id
+        GROUP BY ps.created_month, ta.level1_id, ps.sentiment_group
+        ORDER BY ps.created_month
+    """).fetchall()
+    for r in sent_rows:
+        m = r["month"]
+        if m not in months_dict:
+            continue
+        tid = str(r["topic_id"])
+        sg = r["sentiment_group"] or "sentiment_neutral"
+        if tid not in months_dict[m]["sentiment_by_topic"]:
+            months_dict[m]["sentiment_by_topic"][tid] = {}
+        sd = months_dict[m]["sentiment_by_topic"][tid]
+        sd[sg] = sd.get(sg, 0) + r["cnt"]
+except Exception as e:
+    print(f"  Skipping sentiment_by_topic: {e}")
+
+export("timeline", {"months": list(months_dict.values())})
+
 # hubs
 rows = conn.execute("""
     SELECT t.topic_id, t.llm_label, t.auto_label, t.count,
