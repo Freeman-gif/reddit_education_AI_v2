@@ -82,7 +82,7 @@ sshpass -p 'Zhiyuan#115' ssh freeman@192.168.1.146 \
 | Deployment | URL | Data Source |
 |---|---|---|
 | **GitHub Pages** | https://freeman-gif.github.io/reddit-ai-k12-graph/ | Static JSON (snapshot) |
-| **Frame Desktop** | http://100.70.226.16:3000 | Live SQLite DB |
+
 
 ## How Static Mode Works
 
