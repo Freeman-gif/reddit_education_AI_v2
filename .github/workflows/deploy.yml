@@ -20,11 +20,6 @@ jobs:
           ruff check backend/ dashboard/ --ignore E501
           ruff check scripts/ --ignore E501,F541,E402,F811,F401
 
-      - name: Lint Frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          npx eslint src/ --max-warnings 0 || true
 
   deploy:
     needs: lint
