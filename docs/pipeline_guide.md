@@ -59,7 +59,7 @@ This document covers the end-to-end technical setup, execution, and troubleshoot
 | NPU | XDNA 2 (driver loaded, `/dev/accel0`) |
 | Disk | 457 GB NVMe (~65 GB free) |
 | OS | Ubuntu 24.04.3 LTS, kernel 6.17 |
-| Access | SSH via LAN (192.168.1.146) or Tailscale (100.70.226.16) |
+
 
 ### 2.2 Software Dependencies
 
