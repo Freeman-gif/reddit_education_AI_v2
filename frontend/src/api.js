@@ -24,6 +24,22 @@ export async function fetchYears() {
   return fetchJson(STATIC ? staticUrl('years') : '/api/years')
 }
 
+export async function fetchTimeline() {
+  return fetchJson(STATIC ? staticUrl('timeline') : '/api/timeline')
+}
+
+export async function fetchCategories() {
+  return fetchJson(STATIC ? staticUrl('categories') : '/api/categories')
+}
+
+export async function fetchCategoryEdges() {
+  return fetchJson(STATIC ? staticUrl('categories_edges') : '/api/categories/edges')
+}
+
+export async function fetchTopicPosts(topicId) {
+  return fetchJson(STATIC ? staticUrl(`posts_topic_${topicId}`) : `/api/posts/${topicId}`)
+}
+
 export async function fetchHubs() {
   return fetchJson(STATIC ? staticUrl('hubs') : '/api/hubs')
 }
@@ -63,32 +79,30 @@ export async function fetchPostDetail(postId) {
   return fetchJson(`/api/post/${postId}`)
 }
 
-export async function fetchCommentGalaxy(years) {
+export async function fetchCommentGalaxy() {
   if (STATIC) {
-    const data = await fetchJson(staticUrl('comments_galaxy'))
-    if (years && years.length > 0) {
-      const yearSet = new Set(years)
-      const comments = data.comments.filter(c => yearSet.has(c.year))
-      const commentIds = new Set(comments.map(c => c.comment_id))
-      const edges = data.edges.filter(e => commentIds.has(e.source_id) && commentIds.has(e.target_id))
-      // Recalculate hub centroids for filtered data
-      const clusterMap = {}
-      comments.forEach(c => {
-        if (!clusterMap[c.cluster_id]) clusterMap[c.cluster_id] = { xs: [], ys: [] }
-        clusterMap[c.cluster_id].xs.push(c.umap_x)
-        clusterMap[c.cluster_id].ys.push(c.umap_y)
-      })
-      const hubs = data.hubs.filter(h => clusterMap[h.cluster_id]).map(h => ({
-        ...h,
-        cx: clusterMap[h.cluster_id].xs.reduce((a, b) => a + b, 0) / clusterMap[h.cluster_id].xs.length,
-        cy: clusterMap[h.cluster_id].ys.reduce((a, b) => a + b, 0) / clusterMap[h.cluster_id].ys.length,
-      }))
-      return { hubs, comments, edges }
-    }
-    return data
+    return fetchJson(staticUrl('comments_galaxy_scatter'))
   }
-  const yearParam = years?.length > 0 ? `?years=${years.join(',')}` : ''
-  return fetchJson(`/api/comments/galaxy${yearParam}`)
+  return fetchJson('/api/comments/galaxy')
+}
+
+export async function fetchCommentBundles() {
+  if (STATIC) {
+    try {
+      return await fetchJson(staticUrl('cluster_bundles'))
+    } catch {
+      return { bundles: [] }
+    }
+  }
+  return fetchJson('/api/comments/bundles')
+}
+
+export async function fetchCommentDetail(commentId) {
+  if (STATIC) {
+    // Static mode: no individual comment detail files
+    return { error: 'not available in static mode' }
+  }
+  return fetchJson(`/api/comment/${commentId}`)
 }
 
 export async function fetchCommentCluster(clusterId) {

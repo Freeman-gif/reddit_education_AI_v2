@@ -1,0 +1,32 @@
+name: Deploy Dashboard
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check analysis/ dashboard/ run_analysis.py
+
+      - name: Deploy to Frame Desktop
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.FRAME_TAILSCALE_IP }}
+          username: freeman
+          password: ${{ secrets.FRAME_SSH_PASS }}
+          script: |
+            cd ~/reddit_scrap
+            git pull origin main
+            pip install -r requirements-analysis.txt --break-system-packages
+            sudo systemctl restart reddit-dashboard

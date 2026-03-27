@@ -146,40 +146,63 @@ for topic in conn.execute("SELECT topic_id FROM topics WHERE level = 1").fetchal
 
     export(f"hub_{tid}", t)
 
-# comment galaxy
-hubs = conn.execute("""
-    SELECT cc.cluster_id, cc.count, cc.keywords, cc.label, cc.description,
-           AVG(cca.umap_x) as cx, AVG(cca.umap_y) as cy
-    FROM comment_clusters cc
-    JOIN comment_cluster_assignments cca ON cca.cluster_id = cc.cluster_id
-    JOIN comments cm ON cm.id = cca.comment_id
-    WHERE cm.body NOT IN ('[deleted]', '[removed]')
-    GROUP BY cc.cluster_id
-""").fetchall()
-
-comments = conn.execute("""
-    SELECT cca.comment_id, cca.cluster_id, cca.umap_x, cca.umap_y,
-           cm.body, cm.score, cm.post_id, cm.author,
-           ce.dominant_emotion, ce.sentiment, cs.stance,
-           p.title as post_title,
+# comment galaxy (columnar scatter format)
+galaxy_rows = conn.execute("""
+    SELECT gc.comment_id, gc.x, gc.y, gc.cluster_id,
+           ce.sentiment, ce.dominant_emotion,
            CAST(strftime('%Y', datetime(cm.created_utc, 'unixepoch')) AS TEXT) as year
-    FROM comment_cluster_assignments cca
-    JOIN comments cm ON cm.id = cca.comment_id
+    FROM comment_galaxy_coords gc
+    JOIN comments cm ON cm.id = gc.comment_id
     JOIN comment_emotions ce ON ce.comment_id = cm.id
-    LEFT JOIN comment_stance cs ON cs.comment_id = cm.id
-    JOIN posts p ON p.id = cm.post_id
     WHERE cm.body NOT IN ('[deleted]', '[removed]')
 """).fetchall()
 
-comment_id_set = {c["comment_id"] for c in comments}
-all_edges = conn.execute("SELECT source_id, target_id, weight FROM comment_edges").fetchall()
-c_edges = [safe_row(e) for e in all_edges if e["source_id"] in comment_id_set and e["target_id"] in comment_id_set]
+galaxy_data = []
+for r in galaxy_rows:
+    galaxy_data.append([
+        r["comment_id"],
+        round(r["x"], 4),
+        round(r["y"], 4),
+        r["cluster_id"],
+        r["sentiment"] or "neutral",
+        r["dominant_emotion"] or "neutral",
+        r["year"] or "",
+    ])
 
-export("comments_galaxy", {
-    "hubs": [safe_row(h) for h in hubs],
-    "comments": [safe_row(c) for c in comments],
-    "edges": c_edges,
+galaxy_clusters = conn.execute(
+    "SELECT cluster_id, label, count, keywords FROM comment_clusters ORDER BY cluster_id"
+).fetchall()
+galaxy_clusters_out = []
+for c in galaxy_clusters:
+    galaxy_clusters_out.append({
+        "cluster_id": c["cluster_id"],
+        "label": c["label"] or f"Cluster {c['cluster_id']}",
+        "count": c["count"],
+        "keywords": c["keywords"] or "[]",
+    })
+
+export("comments_galaxy_scatter", {
+    "columns": ["comment_id", "x", "y", "cluster_id", "sentiment", "dominant_emotion", "year"],
+    "data": galaxy_data,
+    "clusters": galaxy_clusters_out,
 })
+
+# cluster bundles (HEB paths)
+try:
+    bundle_rows = conn.execute(
+        "SELECT source_id, target_id, weight, path FROM comment_cluster_bundles"
+    ).fetchall()
+    bundles_out = []
+    for r in bundle_rows:
+        bundles_out.append({
+            "source": r["source_id"],
+            "target": r["target_id"],
+            "weight": r["weight"],
+            "path": json.loads(r["path"]),
+        })
+    export("cluster_bundles", {"bundles": bundles_out})
+except Exception as e:
+    print(f"  Skipping cluster_bundles (table may not exist): {e}")
 
 # comment cluster details
 for cl in conn.execute("SELECT * FROM comment_clusters").fetchall():

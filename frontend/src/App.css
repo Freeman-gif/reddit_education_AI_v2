@@ -204,6 +204,212 @@ body {
   border-radius: 50%;
 }
 
+/* ── Color mode toggle ──────────────────────────────────────────────── */
+
+.color-toggle {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.toggle-opt {
+  font-size: 11px;
+  padding: 5px 12px;
+  color: #888;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.toggle-opt:first-child {
+  border-right: 1px solid #333;
+}
+
+.toggle-opt:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-opt.active {
+  color: #fff;
+  background: rgba(99, 110, 250, 0.3);
+}
+
+/* ── Back button + breadcrumb ────────────────────────────────────────── */
+
+.back-btn {
+  font-size: 12px;
+  padding: 6px 14px;
+  background: rgba(99, 110, 250, 0.2);
+  color: #8B93FF;
+  border: 1px solid rgba(99, 110, 250, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  margin-right: 8px;
+}
+
+.back-btn:hover {
+  background: rgba(99, 110, 250, 0.35);
+  color: #fff;
+}
+
+.breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #ccc;
+  font-weight: 600;
+  margin-right: 12px;
+}
+
+.breadcrumb-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* ── Subreddit legend (drilldown mode) ──────────────────────────────── */
+
+/* ── Filter stats (inline in filter bar) ─────────────────────────────── */
+
+.filter-stats {
+  font-size: 12px;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-date-label {
+  font-size: 11px;
+  color: #636EFA;
+  padding: 2px 8px;
+  background: rgba(99, 110, 250, 0.15);
+  border-radius: 10px;
+}
+
+/* ── Timeline bar ───────────────────────────────────────────────────── */
+
+.timeline-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  background: rgba(17, 17, 17, 0.95);
+  border-top: 1px solid #222;
+  padding: 6px 24px 8px;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.timeline-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.timeline-hint {
+  font-size: 11px;
+  color: #555;
+  font-style: italic;
+}
+
+.timeline-range-info {
+  font-size: 11px;
+  color: #8B93FF;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-clear {
+  font-size: 10px;
+  padding: 1px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.timeline-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.timeline-hover-info {
+  font-size: 11px;
+  color: #aaa;
+  margin-left: auto;
+}
+
+.timeline-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.timeline-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.timeline-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.timeline-scroll::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+
+.subreddit-legend {
+  position: absolute;
+  bottom: 110px;
+  left: 24px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  background: rgba(20, 20, 25, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.subreddit-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.subreddit-legend-item .legend-count {
+  color: #666;
+  margin-left: auto;
+  font-size: 10px;
+}
+
 /* ── Tooltip ─────────────────────────────────────────────────────────── */
 
 .tooltip-overlay {
@@ -260,6 +466,62 @@ body {
   font-size: 12px;
   color: #aaa;
   line-height: 1.5;
+}
+
+.tooltip-category {
+  max-width: 400px;
+}
+
+.tooltip-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.tooltip-tag-pill {
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(99, 110, 250, 0.15);
+  color: #aaa;
+  border-radius: 10px;
+  border: 1px solid rgba(99, 110, 250, 0.2);
+}
+
+.tooltip-tag-pill .tag-count {
+  color: #666;
+  margin-left: 2px;
+}
+
+.tooltip-subs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.tooltip-sem-bar {
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.sem-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  gap: 1px;
+}
+
+.sem-bar-seg {
+  min-width: 3px;
+}
+
+.sem-bar-labels {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
 }
 
 /* ── Side panel ──────────────────────────────────────────────────────── */

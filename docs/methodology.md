@@ -213,89 +213,17 @@ To enable real-time dashboard interactivity, we pre-compute:
 - **Topic-stance distribution**: Agree/disagree/neutral percentages per topic
 - **Temporal frequencies**: Topic counts per time bin for trend visualization
 
-### 5.2 Interactive Force-Directed Graph Dashboard
+### 5.2 Interactive Dashboard
 
-A **React** single-page application provides two force-directed network graph views, built with `react-force-graph-2d` and served by a **FastAPI** backend connected to the SQLite database.
+A **Plotly Dash** web application provides four complementary views:
 
-#### Architecture
+1. **Semantic Map**: 2D UMAP scatter plot of all posts, colored by L1 topic (or L2, category, subreddit). Click-to-drill enables exploring specific clusters. This provides an intuitive overview of the discourse landscape.
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Frontend** | React 18 + Vite | SPA with two tabbed graph views |
-| **Graph Engine** | react-force-graph-2d + D3-force | Force-directed 2D canvas rendering |
-| **Backend API** | FastAPI (Python) | REST endpoints serving graph data from SQLite |
-| **Database** | SQLite (WAL mode) | Persistent storage with live queries |
+2. **Timeline**: Stacked area chart showing topic frequency evolution over 20 time bins. Reveals emergence, growth, and decline of themes. Toggle between L1 (broad trends) and leaf topics (specific events).
 
-#### Tab 1: Topic Network
+3. **Emotion Heatmap**: Rows = L2 topics, columns = 28 emotions, cell color = average intensity. Accompanied by a stacked bar chart of stance distribution per topic. This reveals which topics provoke strong emotions and which generate consensus vs. debate.
 
-Displays all classified posts as a force-directed graph, organized around topic cluster hubs.
-
-- **Clustering method**: K-Means on 768-dimensional nomic-embed-text embeddings, with silhouette score to select optimal k (currently k=5)
-- **Layout**: Fresh UMAP 2D projection (n_neighbors=15, min_dist=0.15, cosine metric) provides initial positions; D3 force simulation settles nodes naturally
-- **Hub nodes**: Cluster centroids rendered as labeled anchor points (fixed position at UMAP centroid), sized by post count
-- **Post nodes**: Colored by topic cluster (matching hub color), sized by Reddit score
-- **Edges**: Hub-to-hub (cosine similarity > 0.5 between embedding centroids), hub-to-post (membership), post-to-post (KNN in UMAP space, weight > 0.2)
-- **D3 physics**: Custom link distances (membership=40px, topic-edge=150px, knn=60px), gentle repulsion (forceManyBody strength=-50), collision detection (forceCollide), no center force, dagMode=null
-- **Interactions**: Click hub → side panel with keywords, top posts, emotion breakdown, stance distribution. Click post → side panel with title, summary, comments with emotion/stance annotations. Background click closes panel.
-- **Year filter**: Multi-select pill buttons filter posts by year (2023–2026)
-
-#### Tab 2: Comment Galaxy
-
-Displays all analyzed comments as a force-directed graph, organized around comment cluster hubs.
-
-- **Clustering method**: K-Means on 768-dimensional nomic-embed-text comment embeddings (generated via Ollama on Frame Desktop), with silhouette score to select optimal k (currently k=3)
-- **Layout**: Same UMAP + D3 force approach as Topic Network
-- **Default coloring**: Nodes colored by cluster group
-- **Sentiment toggle**: A switch that recolors all comment nodes by sentiment (positive=green, negative=red, neutral=gray) without re-fetching data
-- **Interactions**: Click cluster hub → side panel with keywords, emotion breakdown, sentiment distribution, top comments. Click comment → side panel with full body, emotion, sentiment, stance, parent post title.
-- **Year filter**: Same multi-select pill buttons as Topic Network
-
-#### Shared Components
-
-- **DetailPanel**: Right-side sliding panel (400px, CSS transform transition) with conditional rendering based on node type (hub, post, comment-hub, comment, emotion-hub). Includes keyword pills, horizontal stacked emotion bar, comment lists with emotion dots and stance badges.
-- **Tooltip**: Hover overlay showing node summary information.
-
-#### API Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/stats` | Dashboard header statistics |
-| `GET /api/years` | Available years for both post and comment filters |
-| `GET /api/hubs` | Topic cluster hub nodes with UMAP centroids |
-| `GET /api/hubs/edges` | Hub-to-hub similarity edges |
-| `GET /api/posts/all?years=` | All post nodes with UMAP coords, topic assignment, emotion; year-filterable |
-| `GET /api/post/{id}` | Post detail with full comments, emotions, stance |
-| `GET /api/hub/{topic_id}` | Enriched topic detail: keywords, top posts, emotion/stance breakdown |
-| `GET /api/comments/galaxy?years=` | Comment cluster hubs, comment nodes with UMAP coords, KNN edges; year-filterable |
-| `GET /api/comment-cluster/{id}` | Cluster detail: keywords, top comments, emotion/sentiment breakdown |
-
-#### Frontend File Structure
-
-```
-frontend/
-├── index.html
-├── vite.config.js          # Vite config with proxy to backend :8000
-├── src/
-│   ├── App.jsx             # Header, stats bar, tab switching
-│   ├── App.css             # All styles (dark theme, side panel, filters)
-│   └── components/
-│       ├── NetworkGraph.jsx  # Topic Network tab
-│       ├── CommentGalaxy.jsx # Comment Galaxy tab
-│       ├── DetailPanel.jsx   # Shared right-side detail panel
-│       └── Tooltip.jsx       # Hover tooltip
-```
-
-#### Running the Dashboard
-
-```bash
-# Backend (requires ai_edu_env conda environment)
-cd reddit_scrap
-/path/to/ai_edu_env/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
-
-# Frontend (Vite dev server with API proxy)
-cd frontend
-npm run dev   # serves on http://localhost:3000
-```
+4. **Explorer**: Searchable, filterable data table of all relevant posts. Click to expand full post text with comments annotated by emotion labels and stance. Enables qualitative close reading informed by quantitative analysis.
 
 ---
 
@@ -325,7 +253,7 @@ All processing runs on a dedicated local workstation ("Frame Desktop"):
 | **Stance detection** | HuggingFace Transformers + RoBERTa-large-MNLI | Zero-shot NLI stance |
 | **GPU framework** | PyTorch 2.7.1 + ROCm 6.2.4 | GPU-accelerated inference on AMD iGPU |
 | **Database** | SQLite (WAL mode) | Persistent storage with incremental processing |
-| **Dashboard** | React 18 + Vite + react-force-graph-2d + FastAPI | Interactive force-directed graph visualization |
+| **Dashboard** | Plotly Dash + Bootstrap | Interactive web visualization |
 | **Deployment** | GitHub Actions + SSH | CI/CD to Frame Desktop |
 
 ### 6.3 Reproducibility

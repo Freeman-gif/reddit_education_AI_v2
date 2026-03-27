@@ -7,7 +7,7 @@ import requests
 
 DB_PATH = Path(__file__).parent.parent / "data" / "reddit_ai_k12.db"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "qwen3:8b"
+MODEL = "qwen3:32b"
 
 conn = sqlite3.connect(str(DB_PATH))
 conn.row_factory = sqlite3.Row

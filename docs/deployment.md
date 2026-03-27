@@ -62,7 +62,9 @@ The interactive force-directed graph dashboard is deployed on Frame Desktop, acc
 │   ├── embed_comments.py    # Embed new comments via Ollama nomic-embed-text
 │   ├── recluster_topics.py  # K-Means clustering on post embeddings
 │   ├── cluster_comments.py  # K-Means clustering on comment embeddings
-│   └── refresh_clusters.sh  # Cron script: runs all 4 above in sequence
+│   ├── precompute_galaxy.py # HDBSCAN clustering on UMAP 10D comment embeddings + LLM labels
+│   ├── compute_bundles.py   # Hierarchical edge bundling between comment clusters
+│   └── refresh_clusters.sh  # Cron script: runs all above in sequence
 └── .venv/                   # Python venv (fastapi, uvicorn, scikit-learn, umap-learn, etc.)
 ```
 
@@ -106,6 +108,10 @@ Every 3 hours, `refresh_clusters.sh` re-runs the full clustering pipeline:
 2. `recluster_topics.py` — K-Means on all post embeddings, updates topics/topic_assignments/topic_edges/post_edges
 3. `embed_comments.py` — embeds any new comments that lack embeddings
 4. `cluster_comments.py` — K-Means on all comment embeddings, updates comment_clusters/comment_cluster_assignments/comment_edges
+
+**Comment Galaxy recomputation** (run manually, ~5 min total):
+1. `precompute_galaxy.py` — UMAP 10D + HDBSCAN + UMAP 2D + TF-IDF + LLM labels (~4 min)
+2. `compute_bundles.py` — hierarchical edge bundling between clusters (~30s)
 
 ```bash
 # View cron

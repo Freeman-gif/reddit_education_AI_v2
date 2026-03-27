@@ -1,124 +1,103 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import ForceGraph2D from 'react-force-graph-2d'
-import { forceCollide, forceManyBody } from 'd3-force'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import DeckGL from 'deck.gl'
+import { ScatterplotLayer, PathLayer } from 'deck.gl'
+import { OrthographicView } from 'deck.gl'
 import Tooltip from './Tooltip'
 import DetailPanel from './DetailPanel'
-import { fetchYears, fetchCommentGalaxy, fetchCommentCluster } from '../api'
+import { fetchYears, fetchCommentGalaxy, fetchCommentDetail, fetchCommentBundles } from '../api'
 
 const HUB_COLORS = [
-  '#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3',
-  '#FF6692', '#B6E880', '#FF97FF', '#FECB52', '#72B7B2', '#E45756',
+  [99, 110, 250, 200],   // #636EFA
+  [239, 85, 59, 200],    // #EF553B
+  [0, 204, 150, 200],    // #00CC96
+  [171, 99, 250, 200],   // #AB63FA
+  [255, 161, 90, 200],   // #FFA15A
+  [25, 211, 243, 200],   // #19D3F3
+  [255, 102, 146, 200],  // #FF6692
+  [182, 232, 128, 200],  // #B6E880
+  [255, 151, 255, 200],  // #FF97FF
+  [254, 203, 82, 200],   // #FECB52
+  [114, 183, 178, 200],  // #72B7B2
+  [228, 87, 86, 200],    // #E45756
 ]
 
 const SENTIMENT_COLORS = {
-  positive: '#32CD32',
-  negative: '#DC143C',
-  neutral: '#A9A9A9',
+  positive: [50, 205, 50, 200],
+  negative: [220, 20, 60, 200],
+  neutral: [169, 169, 169, 200],
 }
 
-const SCALE = 80
+const COL = { comment_id: 0, x: 1, y: 2, cluster_id: 3, sentiment: 4, dominant_emotion: 5, year: 6 }
 
 export default function CommentGalaxy() {
-  const fgRef = useRef()
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] })
+  const deckRef = useRef()
+  const [rawData, setRawData] = useState(null)
+  const [clusters, setClusters] = useState([])
   const [tooltip, setTooltip] = useState(null)
   const [selectedNode, setSelectedNode] = useState(null)
   const [sentimentMode, setSentimentMode] = useState(false)
   const [years, setYears] = useState([])
   const [selectedYears, setSelectedYears] = useState([])
+  const [viewState, setViewState] = useState(null)
+  const [bundles, setBundles] = useState([])
+  const [showBundles, setShowBundles] = useState(true)
 
   // Load available years on mount
   useEffect(() => {
     fetchYears().then(d => setYears(d.comment_years || []))
   }, [])
 
-  // Load graph data
+  // Load galaxy data + bundles once
   useEffect(() => {
-    fetchCommentGalaxy(selectedYears).then(data => {
-        const nodes = []
-        const links = []
-        const colorMap = {}
-
-        // Cluster hub nodes
-        data.hubs.forEach((h, i) => {
-          const color = HUB_COLORS[i % HUB_COLORS.length]
-          colorMap[h.cluster_id] = color
-          nodes.push({
-            id: `cluster-${h.cluster_id}`,
-            label: h.label || `Cluster ${h.cluster_id}`,
-            type: 'comment-hub',
-            clusterId: h.cluster_id,
-            count: h.count || 0,
-            description: h.description || '',
-            color,
-            size: Math.max(6, Math.min(18, 6 + Math.log(1 + (h.count || 0)) * 3)),
-            fx: h.cx * SCALE,
-            fy: h.cy * SCALE,
-          })
-        })
-
-        // Comment nodes
-        data.comments.forEach(c => {
-          nodes.push({
-            id: c.comment_id,
-            type: 'comment',
-            body: (c.body || '').slice(0, 200),
-            author: c.author || '[deleted]',
-            score: c.score || 0,
-            postId: c.post_id,
-            postTitle: c.post_title || '',
-            emotion: c.dominant_emotion || 'neutral',
-            sentiment: c.sentiment || 'neutral',
-            stance: c.stance || '',
-            clusterId: c.cluster_id,
-            clusterColor: colorMap[c.cluster_id] || '#636EFA',
-            color: colorMap[c.cluster_id] || '#636EFA',
-            size: Math.max(3, Math.min(9, 3 + Math.log(1 + (c.score || 0)) * 1.5)),
-            x: c.umap_x * SCALE,
-            y: c.umap_y * SCALE,
-          })
-          // Membership edge
-          links.push({
-            source: `cluster-${c.cluster_id}`,
-            target: c.comment_id,
-            type: 'membership',
-          })
-        })
-
-        // KNN edges
-        data.edges.forEach(e => {
-          links.push({
-            source: e.source_id,
-            target: e.target_id,
-            weight: e.weight,
-            type: 'knn',
-          })
-        })
-
-        setGraphData({ nodes, links })
-      })
-  }, [selectedYears])
-
-  // Zoom to fit after data loads
-  useEffect(() => {
-    if (graphData.nodes.length > 0 && fgRef.current) {
-      setTimeout(() => fgRef.current.zoomToFit(400, 40), 500)
-    }
-  }, [graphData])
-
-  // Configure D3 forces
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg) return
-    fg.d3Force('link')
-      .distance(link => {
-        if (link.type === 'membership') return 40
-        return 60
-      })
-    fg.d3Force('charge', forceManyBody().strength(-50))
-    fg.d3Force('collision', forceCollide(node => (node.size || 5) + 2))
-    fg.d3Force('center', null)
+    fetchCommentGalaxy().then(data => {
+      setRawData(data.data)
+      setClusters(data.clusters || [])
+    })
+    fetchCommentBundles().then(data => {
+      setBundles(data.bundles || [])
+    })
   }, [])
+
+  // Filter by year client-side
+  const points = useMemo(() => {
+    if (!rawData) return []
+    if (selectedYears.length === 0) return rawData
+    const yearSet = new Set(selectedYears)
+    return rawData.filter(row => yearSet.has(row[COL.year]))
+  }, [rawData, selectedYears])
+
+  // Compute initial view state from data bounds
+  useEffect(() => {
+    if (points.length === 0) return
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const row of points) {
+      if (row[COL.x] < minX) minX = row[COL.x]
+      if (row[COL.x] > maxX) maxX = row[COL.x]
+      if (row[COL.y] < minY) minY = row[COL.y]
+      if (row[COL.y] > maxY) maxY = row[COL.y]
+    }
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    const rangeX = maxX - minX || 1
+    const rangeY = maxY - minY || 1
+    const zoom = Math.log2(Math.min(
+      (window.innerWidth * 0.8) / rangeX,
+      (window.innerHeight * 0.8) / rangeY,
+    ))
+    setViewState({
+      target: [cx, cy, 0],
+      zoom: Math.max(-2, Math.min(zoom, 6)),
+      minZoom: -3,
+      maxZoom: 10,
+    })
+  }, [points])
+
+  // Build cluster label map
+  const clusterMap = useMemo(() => {
+    const m = {}
+    clusters.forEach(c => { m[c.cluster_id] = c })
+    return m
+  }, [clusters])
 
   const toggleYear = useCallback((year) => {
     setSelectedYears(prev =>
@@ -126,89 +105,97 @@ export default function CommentGalaxy() {
     )
   }, [])
 
-  const handleNodeClick = useCallback((node) => {
-    if (node.type === 'comment-hub') {
-      fetchCommentCluster(node.clusterId)
-        .then(data => setSelectedNode({ type: 'comment-hub', data }))
-    } else if (node.type === 'comment') {
-      // Show comment detail client-side
+  const handleClick = useCallback((info) => {
+    if (!info.object) {
+      setSelectedNode(null)
+      return
+    }
+    const row = info.object
+    const commentId = row[COL.comment_id]
+    fetchCommentDetail(commentId).then(data => {
+      if (data.error) return
       setSelectedNode({
         type: 'comment',
         data: {
-          body: node.body,
-          author: node.author,
-          score: node.score,
-          emotion: node.emotion,
-          sentiment: node.sentiment,
-          stance: node.stance,
-          postTitle: node.postTitle,
-          postId: node.postId,
+          body: data.body,
+          author: data.author,
+          score: data.score,
+          emotion: data.dominant_emotion,
+          sentiment: data.sentiment,
+          stance: data.stance,
+          postTitle: data.post_title,
+          postId: data.post_id,
         },
       })
-    }
+    })
   }, [])
 
-  const handleNodeHover = useCallback((node) => {
-    if (!node) {
+  const handleHover = useCallback((info) => {
+    if (!info.object) {
       setTooltip(null)
-      document.body.style.cursor = 'default'
       return
     }
-    document.body.style.cursor = 'pointer'
-    const fg = fgRef.current
-    if (!fg) return
-    const coords = fg.graph2ScreenCoords(node.x, node.y)
-    setTooltip({ node, x: coords.x, y: coords.y })
-  }, [])
+    const row = info.object
+    const cluster = clusterMap[row[COL.cluster_id]]
+    setTooltip({
+      node: {
+        type: 'comment-scatter',
+        clusterLabel: cluster?.label || `Cluster ${row[COL.cluster_id]}`,
+        sentiment: row[COL.sentiment],
+        emotion: row[COL.dominant_emotion],
+      },
+      x: info.x,
+      y: info.y,
+    })
+  }, [clusterMap])
 
-  const paintNode = useCallback((node, ctx, globalScale) => {
-    const r = node.size || 5
+  const bundleLayer = useMemo(() => new PathLayer({
+    id: 'cluster-bundles',
+    data: bundles,
+    getPath: d => d.path,
+    getColor: d => [255, 255, 255, Math.floor(15 + d.weight * 30)],
+    getWidth: d => Math.max(1, d.weight * 4),
+    widthMinPixels: 1,
+    widthMaxPixels: 5,
+    widthUnits: 'pixels',
+    visible: showBundles,
+    billboard: false,
+  }), [bundles, showBundles])
 
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, r, 0, Math.PI * 2)
+  const layer = useMemo(() => new ScatterplotLayer({
+    id: 'comment-scatter',
+    data: points,
+    pickable: true,
+    radiusMinPixels: 2,
+    radiusMaxPixels: 8,
+    getPosition: d => [d[COL.x], d[COL.y], 0],
+    getFillColor: d => {
+      if (sentimentMode) {
+        return SENTIMENT_COLORS[d[COL.sentiment]] || SENTIMENT_COLORS.neutral
+      }
+      return HUB_COLORS[d[COL.cluster_id] % HUB_COLORS.length]
+    },
+    getRadius: 0.15,
+    updateTriggers: {
+      getFillColor: sentimentMode,
+    },
+  }), [points, sentimentMode])
 
-    if (node.type === 'comment' && sentimentMode) {
-      ctx.fillStyle = SENTIMENT_COLORS[node.sentiment] || '#A9A9A9'
-    } else {
-      ctx.fillStyle = node.color
-    }
-    ctx.fill()
-
-    ctx.strokeStyle = 'white'
-    ctx.lineWidth = 1 / globalScale
-    ctx.stroke()
-
-    if (node.type === 'comment-hub') {
-      const fontSize = Math.max(8, 12 / globalScale)
-      ctx.font = `bold ${fontSize}px -apple-system, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.strokeStyle = '#111111'
-      ctx.lineWidth = 3 / globalScale
-      ctx.strokeText(node.label, node.x, node.y + r + 2 / globalScale)
-      ctx.fillStyle = '#ffffff'
-      ctx.fillText(node.label, node.x, node.y + r + 2 / globalScale)
-    }
-  }, [sentimentMode])
-
-  const paintLink = useCallback((link, ctx) => {
-    if (!link.source.x || !link.target.x) return
-    ctx.beginPath()
-    ctx.moveTo(link.source.x, link.source.y)
-    ctx.lineTo(link.target.x, link.target.y)
-    if (link.type === 'membership') {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)'
-      ctx.lineWidth = 0.5
-    } else {
-      ctx.strokeStyle = `rgba(255, 255, 255, ${Math.min(0.2, (link.weight || 0.5) * 0.25)})`
-      ctx.lineWidth = Math.max(0.3, (link.weight || 0.5) * 1.5)
-    }
-    ctx.stroke()
-  }, [])
+  if (!viewState) {
+    return <div style={{ width: '100%', height: '100%', background: '#111111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>Loading galaxy...</div>
+  }
 
   return (
     <>
       <div className="filter-bar">
+        <label className="sentiment-toggle">
+          <input
+            type="checkbox"
+            checked={showBundles}
+            onChange={e => setShowBundles(e.target.checked)}
+          />
+          <span className="toggle-label">Cluster Links</span>
+        </label>
         <label className="sentiment-toggle">
           <input
             type="checkbox"
@@ -237,33 +224,44 @@ export default function CommentGalaxy() {
         </div>
       </div>
 
-      <ForceGraph2D
-        ref={fgRef}
-        graphData={graphData}
-        backgroundColor="#111111"
-        dagMode={null}
-        nodeCanvasObject={paintNode}
-        nodePointerAreaPaint={(node, color, ctx) => {
-          ctx.beginPath()
-          ctx.arc(node.x, node.y, (node.size || 5) * 1.5, 0, Math.PI * 2)
-          ctx.fillStyle = color
-          ctx.fill()
-        }}
-        linkCanvasObject={paintLink}
-        onNodeClick={handleNodeClick}
-        onNodeHover={handleNodeHover}
-        onBackgroundClick={() => setSelectedNode(null)}
-        d3AlphaDecay={0.05}
-        d3VelocityDecay={0.3}
-        warmupTicks={50}
-        cooldownTime={3000}
-        minZoom={0.3}
-        maxZoom={8}
-      />
+      <div style={{ width: '100%', height: '100%', background: '#111111', position: 'relative' }}>
+        <DeckGL
+          ref={deckRef}
+          views={new OrthographicView({ id: 'ortho' })}
+          initialViewState={viewState}
+          controller={true}
+          layers={[bundleLayer, layer]}
+          onClick={handleClick}
+          onHover={handleHover}
+          getCursor={({ isHovering }) => isHovering ? 'pointer' : 'grab'}
+        />
+      </div>
 
       {tooltip && <Tooltip data={tooltip} />}
 
       <DetailPanel data={selectedNode} onClose={() => setSelectedNode(null)} />
+
+      {/* Cluster legend */}
+      {!sentimentMode && clusters.length > 0 && (
+        <div style={{
+          position: 'absolute', bottom: 12, left: 12, background: 'rgba(0,0,0,0.75)',
+          borderRadius: 8, padding: '8px 12px', fontSize: 11, color: '#ccc', maxWidth: 300,
+          pointerEvents: 'none',
+        }}>
+          {clusters.map(c => {
+            const rgba = HUB_COLORS[c.cluster_id % HUB_COLORS.length]
+            return (
+              <div key={c.cluster_id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                  background: `rgba(${rgba[0]},${rgba[1]},${rgba[2]},1)`,
+                }} />
+                <span>{c.label} ({c.count})</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </>
   )
 }

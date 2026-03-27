@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections import defaultdict
 from pathlib import Path
 
 from fastapi import FastAPI, Query
@@ -59,6 +60,62 @@ def stats():
         conn.close()
 
 
+# ── Category nodes (L1 topics enriched with metadata) ─────────────────
+
+@app.get("/api/categories")
+def categories():
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT t.topic_id, t.llm_label, t.auto_label, t.count,
+                   t.llm_description, t.keywords,
+                   AVG(ta.umap_x) as cx, AVG(ta.umap_y) as cy,
+                   m.tags_json, m.subreddits_json, m.paragraph_summary
+            FROM topics t
+            JOIN topic_assignments ta ON ta.level1_id = t.topic_id
+            LEFT JOIN topic_category_meta m ON m.topic_id = t.topic_id
+            WHERE t.level = 1
+            GROUP BY t.topic_id
+        """).fetchall()
+        result = []
+        for r in rows:
+            d = safe_row(r)
+            # Parse JSON fields
+            for field in ("tags_json", "subreddits_json"):
+                try:
+                    d[field] = json.loads(d.get(field) or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    d[field] = []
+            try:
+                d["keywords"] = json.loads(d.get("keywords") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                d["keywords"] = []
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/api/categories/edges")
+def category_edges():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT * FROM topic_overlap_edges").fetchall()
+        result = []
+        for r in rows:
+            d = safe_row(r)
+            try:
+                d["shared_tags_json"] = json.loads(d.get("shared_tags_json") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                d["shared_tags_json"] = []
+            result.append(d)
+        return result
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 # ── Hub nodes (L1 topics) ───────────────────────────────────────────────
 
 @app.get("/api/hubs")
@@ -87,6 +144,59 @@ def hub_edges():
     try:
         rows = conn.execute("SELECT * FROM topic_edges").fetchall()
         return [safe_row(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ── Timeline (monthly post counts per topic) ─────────────────────────
+
+@app.get("/api/timeline")
+def timeline():
+    conn = get_db()
+    try:
+        # Post counts per month per topic
+        rows = conn.execute("""
+            SELECT strftime('%Y-%m', datetime(p.created_utc, 'unixepoch')) as month,
+                   ta.level1_id as topic_id,
+                   COUNT(*) as cnt
+            FROM posts p
+            JOIN topic_assignments ta ON ta.post_id = p.id
+            GROUP BY month, ta.level1_id
+            ORDER BY month
+        """).fetchall()
+
+        months_dict = {}
+        for r in rows:
+            m = r["month"]
+            if m not in months_dict:
+                months_dict[m] = {"month": m, "total": 0, "by_topic": {}, "sentiment_by_topic": {}}
+            months_dict[m]["total"] += r["cnt"]
+            months_dict[m]["by_topic"][str(r["topic_id"])] = r["cnt"]
+
+        # Sentiment group counts per month per topic (from post_sentiments)
+        sent_rows = conn.execute("""
+            SELECT ps.created_month as month,
+                   ta.level1_id as topic_id,
+                   ps.sentiment_group,
+                   COUNT(*) as cnt
+            FROM post_sentiments ps
+            JOIN topic_assignments ta ON ta.post_id = ps.post_id
+            GROUP BY ps.created_month, ta.level1_id, ps.sentiment_group
+            ORDER BY ps.created_month
+        """).fetchall()
+
+        for r in sent_rows:
+            m = r["month"]
+            if m not in months_dict:
+                continue
+            tid = str(r["topic_id"])
+            sg = r["sentiment_group"] or "sentiment_neutral"
+            if tid not in months_dict[m]["sentiment_by_topic"]:
+                months_dict[m]["sentiment_by_topic"][tid] = {}
+            sd = months_dict[m]["sentiment_by_topic"][tid]
+            sd[sg] = sd.get(sg, 0) + r["cnt"]
+
+        return {"months": list(months_dict.values())}
     finally:
         conn.close()
 
@@ -142,28 +252,28 @@ def all_posts(years: str = Query(default=None)):
         ).fetchall()
         edges = [e for e in all_edges if e["source_id"] in post_id_set and e["target_id"] in post_id_set]
 
-        # Dominant emotion per post
+        # Post sentiment from post_sentiments table
         post_ids = [p["post_id"] for p in posts]
-        emotions = {}
+        sentiments = {}
         if post_ids:
             placeholders = ",".join("?" * len(post_ids))
-            emo_rows = conn.execute(f"""
-                SELECT cm.post_id, ce.dominant_emotion, COUNT(*) as cnt
-                FROM comments cm
-                JOIN comment_emotions ce ON ce.comment_id = cm.id
-                WHERE cm.post_id IN ({placeholders})
-                GROUP BY cm.post_id, ce.dominant_emotion
-                ORDER BY cnt DESC
+            sent_rows = conn.execute(f"""
+                SELECT post_id, dominant_emotion, sentiment_group
+                FROM post_sentiments
+                WHERE post_id IN ({placeholders})
             """, post_ids).fetchall()
-            for r in emo_rows:
-                pid = r["post_id"]
-                if pid not in emotions:
-                    emotions[pid] = r["dominant_emotion"]
+            for r in sent_rows:
+                sentiments[r["post_id"]] = {
+                    "dominant_emotion": r["dominant_emotion"],
+                    "sentiment_group": r["sentiment_group"],
+                }
 
         posts_out = []
         for p in posts:
             d = safe_row(p)
-            d["dominant_emotion"] = emotions.get(d["post_id"], "neutral")
+            s = sentiments.get(d["post_id"], {})
+            d["dominant_emotion"] = s.get("dominant_emotion", "neutral")
+            d["sentiment_group"] = s.get("sentiment_group", "sentiment_neutral")
             posts_out.append(d)
 
         return {
@@ -183,7 +293,8 @@ def topic_posts(topic_id: int):
         posts = conn.execute("""
             SELECT p.id as post_id, p.title, p.score, p.num_comments,
                    p.subreddit, c.summary, c.category,
-                   ta.umap_x, ta.umap_y
+                   ta.umap_x, ta.umap_y,
+                   strftime('%Y-%m', datetime(p.created_utc, 'unixepoch')) as created_month
             FROM topic_assignments ta
             JOIN posts p ON p.id = ta.post_id
             LEFT JOIN classifications c ON c.post_id = p.id
@@ -197,28 +308,28 @@ def topic_posts(topic_id: int):
               AND pe.target_id IN (SELECT post_id FROM topic_assignments WHERE level1_id = ?)
         """, (topic_id, topic_id)).fetchall()
 
-        # Dominant emotion per post (from its comments)
+        # Post sentiment from post_sentiments table
         post_ids = [p["post_id"] for p in posts]
-        emotions = {}
+        sentiments = {}
         if post_ids:
             placeholders = ",".join("?" * len(post_ids))
-            emo_rows = conn.execute(f"""
-                SELECT cm.post_id, ce.dominant_emotion, COUNT(*) as cnt
-                FROM comments cm
-                JOIN comment_emotions ce ON ce.comment_id = cm.id
-                WHERE cm.post_id IN ({placeholders})
-                GROUP BY cm.post_id, ce.dominant_emotion
-                ORDER BY cnt DESC
+            sent_rows = conn.execute(f"""
+                SELECT post_id, dominant_emotion, sentiment_group
+                FROM post_sentiments
+                WHERE post_id IN ({placeholders})
             """, post_ids).fetchall()
-            for r in emo_rows:
-                pid = r["post_id"]
-                if pid not in emotions:
-                    emotions[pid] = r["dominant_emotion"]
+            for r in sent_rows:
+                sentiments[r["post_id"]] = {
+                    "dominant_emotion": r["dominant_emotion"],
+                    "sentiment_group": r["sentiment_group"],
+                }
 
         posts_out = []
         for p in posts:
             d = safe_row(p)
-            d["dominant_emotion"] = emotions.get(d["post_id"], "neutral")
+            s = sentiments.get(d["post_id"], {})
+            d["dominant_emotion"] = s.get("dominant_emotion", "neutral")
+            d["sentiment_group"] = s.get("sentiment_group", "sentiment_neutral")
             posts_out.append(d)
 
         return {
@@ -379,59 +490,99 @@ def emotion_detail(emotion: str):
         conn.close()
 
 
-# ── Comment galaxy data (cluster-based) ────────────────────────────────
+# ── Comment galaxy data (columnar scatterplot) ────────────────────────
 
 @app.get("/api/comments/galaxy")
-def comment_galaxy(years: str = Query(default=None)):
+def comment_galaxy():
     conn = get_db()
     try:
-        year_filter = ""
-        params = []
-        if years:
-            year_list = [y.strip() for y in years.split(",")]
-            placeholders = ",".join("?" * len(year_list))
-            year_filter = f" AND CAST(strftime('%Y', datetime(cm.created_utc, 'unixepoch')) AS TEXT) IN ({placeholders})"
-            params = year_list
+        rows = conn.execute("""
+            SELECT gc.comment_id, gc.x, gc.y, gc.cluster_id,
+                   ce.sentiment, ce.dominant_emotion,
+                   CAST(strftime('%Y', datetime(cm.created_utc, 'unixepoch')) AS TEXT) as year
+            FROM comment_galaxy_coords gc
+            JOIN comments cm ON cm.id = gc.comment_id
+            JOIN comment_emotions ce ON ce.comment_id = cm.id
+            WHERE cm.body NOT IN ('[deleted]', '[removed]')
+        """).fetchall()
 
-        # Cluster hubs
-        hubs = conn.execute(f"""
-            SELECT cc.cluster_id, cc.count, cc.keywords, cc.label, cc.description,
-                   AVG(cca.umap_x) as cx, AVG(cca.umap_y) as cy
-            FROM comment_clusters cc
-            JOIN comment_cluster_assignments cca ON cca.cluster_id = cc.cluster_id
-            JOIN comments cm ON cm.id = cca.comment_id
-            WHERE cm.body NOT IN ('[deleted]', '[removed]') {year_filter}
-            GROUP BY cc.cluster_id
-        """, params).fetchall()
+        data = []
+        for r in rows:
+            data.append([
+                r["comment_id"],
+                round(r["x"], 4),
+                round(r["y"], 4),
+                r["cluster_id"],
+                r["sentiment"] or "neutral",
+                r["dominant_emotion"] or "neutral",
+                r["year"] or "",
+            ])
 
-        # Comment nodes
-        comments = conn.execute(f"""
-            SELECT cca.comment_id, cca.cluster_id, cca.umap_x, cca.umap_y,
-                   cm.body, cm.score, cm.post_id, cm.author,
+        clusters = conn.execute(
+            "SELECT cluster_id, label, count, keywords FROM comment_clusters ORDER BY cluster_id"
+        ).fetchall()
+        clusters_out = []
+        for c in clusters:
+            clusters_out.append({
+                "cluster_id": c["cluster_id"],
+                "label": c["label"] or f"Cluster {c['cluster_id']}",
+                "count": c["count"],
+                "keywords": c["keywords"] or "[]",
+            })
+
+        return {
+            "columns": ["comment_id", "x", "y", "cluster_id", "sentiment", "dominant_emotion", "year"],
+            "data": data,
+            "clusters": clusters_out,
+        }
+    finally:
+        conn.close()
+
+
+# ── Pre-computed cluster bundle paths ──────────────────────────────────
+
+@app.get("/api/comments/bundles")
+def comment_bundles():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT source_id, target_id, weight, path FROM comment_cluster_bundles"
+        ).fetchall()
+        bundles = []
+        for r in rows:
+            bundles.append({
+                "source": r["source_id"],
+                "target": r["target_id"],
+                "weight": r["weight"],
+                "path": json.loads(r["path"]),
+            })
+        return {"bundles": bundles}
+    except Exception:
+        return {"bundles": []}
+    finally:
+        conn.close()
+
+
+# ── Single comment detail (on-demand) ─────────────────────────────────
+
+@app.get("/api/comment/{comment_id}")
+def comment_detail(comment_id: str):
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT cm.body, cm.author, cm.score,
                    ce.dominant_emotion, ce.sentiment,
                    cs.stance,
-                   p.title as post_title
-            FROM comment_cluster_assignments cca
-            JOIN comments cm ON cm.id = cca.comment_id
+                   p.title as post_title, p.id as post_id
+            FROM comments cm
             JOIN comment_emotions ce ON ce.comment_id = cm.id
             LEFT JOIN comment_stance cs ON cs.comment_id = cm.id
             JOIN posts p ON p.id = cm.post_id
-            WHERE cm.body NOT IN ('[deleted]', '[removed]') {year_filter}
-        """, params).fetchall()
-
-        # KNN edges (filtered to visible comments)
-        comment_id_set = {c["comment_id"] for c in comments}
-        all_edges = conn.execute(
-            "SELECT source_id, target_id, weight FROM comment_edges"
-        ).fetchall()
-        edges = [safe_row(e) for e in all_edges
-                 if e["source_id"] in comment_id_set and e["target_id"] in comment_id_set]
-
-        return {
-            "hubs": [safe_row(h) for h in hubs],
-            "comments": [safe_row(c) for c in comments],
-            "edges": edges,
-        }
+            WHERE cm.id = ?
+        """, (comment_id,)).fetchone()
+        if not row:
+            return {"error": "not found"}
+        return safe_row(row)
     finally:
         conn.close()
 
