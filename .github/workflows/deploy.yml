@@ -1,7 +1,16 @@
-name: Deploy to Frame Desktop
+name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -20,42 +29,39 @@ jobs:
           ruff check backend/ dashboard/ --ignore E501
           ruff check scripts/ --ignore E501,F541,E402,F811,F401
 
-  deploy:
+  build:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Deploy to Frame Desktop
-        uses: appleboy/ssh-action@v1
+      - name: Install and build frontend
+        working-directory: frontend
+        env:
+          VITE_STATIC: "true"
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          host: ${{ secrets.FRAME_TAILSCALE_IP }}
-          username: ${{ secrets.FRAME_USER }}
-          password: ${{ secrets.FRAME_SSH_PASS }}
-          script: |
-            cd ~/reddit_scrap
+          path: frontend/dist
 
-            # Pull latest code
-            git pull origin main
-
-            # Install/update Python deps
-            .venv/bin/pip install -r backend/requirements.txt -q
-
-            # Rebuild frontend if source changed
-            if git diff HEAD~1 --name-only | grep -q '^frontend/src/'; then
-              cd frontend
-              npm ci
-              npm run build
-              cd ..
-            fi
-
-            # Restart the graph server
-            screen -S graph -X quit 2>/dev/null || true
-            screen -dmS graph bash -c "cd ~/reddit_scrap && .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 3000"
-
-            echo "Deploy complete!"
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
