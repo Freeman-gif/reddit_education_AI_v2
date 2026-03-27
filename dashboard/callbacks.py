@@ -1,12 +1,10 @@
 """Dash callbacks for interactivity."""
 
 import json
-from datetime import datetime
 
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, html, no_update
+from dash import Input, Output, State, html, no_update
 import dash_bootstrap_components as dbc
 
 from dashboard.data_loader import (

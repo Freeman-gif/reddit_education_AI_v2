@@ -1,6 +1,5 @@
 """Load analysis data from SQLite for the dashboard."""
 
-import json
 
 import pandas as pd
 
