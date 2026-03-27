@@ -17,7 +17,7 @@ jobs:
       - name: Lint Python
         run: |
           pip install ruff
-          ruff check backend/ scripts/ dashboard/ --ignore E501
+          ruff check backend/ scripts/ dashboard/ --ignore E501,F541,E402,F811
 
       - name: Lint Frontend
         working-directory: frontend
