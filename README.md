@@ -2,7 +2,7 @@
 
 Interactive force-directed graph visualization of how educators discuss AI on Reddit. Analyzes posts and comments across 11 education subreddits using NLP pipelines for topic modeling, emotion analysis, and stance detection.
 
-**Live Demo:** [GitHub Pages](https://freeman-gif.github.io/reddit_education_AI_v2/)
+**Live Demo:** [GitHub Pages]([https://freeman-gif.github.io/reddit_education_AI_v2/](https://freeman-gif.github.io/reddit_education_AI_v2/))
 
 ## Tech Stack
 
